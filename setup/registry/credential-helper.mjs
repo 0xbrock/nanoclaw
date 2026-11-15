@@ -170,9 +170,11 @@ function requirePullNonce() {
 
   const provided = (process.env.NANOCLAW_PULL_NONCE ?? '').trim();
   if (!provided) {
-    throw refuse(
-      'NANOCLAW_PULL_NONCE is unset. container/pull.sh sets it for the pull it runs; nothing else should be asking for a registry credential.',
-    );
+    // Not a NanoClaw pull. Answer "not found" rather than failing: Podman's
+    // remote client (and some docker-compatible CLIs) call `get` on every
+    // credHelpers host before any run/build, even for local images, and a hard
+    // error there breaks every container command. Nothing is minted either way.
+    throw new HelperError(ERR_NOT_FOUND);
   }
 
   let st;
