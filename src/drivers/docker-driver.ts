@@ -362,25 +362,22 @@ export class DockerSessionDriver implements SessionDriver {
     // to close it. Only non-running ones — an adopted session's are still serving it.
     // A stopped gateway is kept: removing it leaves nothing to recreate it.
     try {
+      // State is filtered here, not with `--filter status=…`: Podman's docker
+      // shim rejects `status=dead` and fails the whole listing.
       const out = this.#cli.run([
         'ps',
         '-a',
         '--filter',
         `label=${LABELS.install}=${installSlug}`,
-        '--filter',
-        'status=exited',
-        '--filter',
-        'status=created',
-        '--filter',
-        'status=dead',
         '--format',
-        `{{.Names}}|{{.Label "${LABELS.session}"}}|{{.Label "${LABELS.role}"}}`,
+        `{{.Names}}|{{.Label "${LABELS.session}"}}|{{.Label "${LABELS.role}"}}|{{.State}}`,
       ]);
       const stale = out
         .trim()
         .split('\n')
         .filter(Boolean)
         .map((line) => line.split('|'))
+        .filter(([, , , state]) => REAPABLE_STATES.has((state ?? '').trim().toLowerCase()))
         .filter(([, sessionId, role]) => !isGatewayOwned(sessionId, role))
         .map(([name]) => name);
       for (const name of stale) {
@@ -659,6 +656,12 @@ function keyId(key: SessionKey): string {
 }
 
 // ---------- realization helpers (absorbed from container-runtime.ts) ----------
+
+/**
+ * Non-running states `reapResidue` removes. Docker reports exited/created/dead;
+ * Podman reports stopped/configured for the same conditions.
+ */
+const REAPABLE_STATES = new Set(['exited', 'created', 'dead', 'stopped', 'configured']);
 
 /**
  * `docker ps` state → seam phase. 'created' is prepared-not-started — an

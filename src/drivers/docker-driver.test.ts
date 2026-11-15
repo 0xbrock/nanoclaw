@@ -607,7 +607,8 @@ describe('idempotency and adoption', () => {
     cli.responses = [
       {
         match: /^ps -a/,
-        output: 'ncl-spike-s1-aux|s1|mcp\ngateway-spike||gateway\nold-residue||\nbare-proxy||proxy\n',
+        output:
+          'ncl-spike-s1-aux|s1|mcp|exited\ngateway-spike||gateway|exited\nold-residue|||dead\nbare-proxy||proxy|created\n',
       },
     ];
 
@@ -617,6 +618,24 @@ describe('idempotency and adoption', () => {
     expect(cli.joined()).toContain('rm --force old-residue');
     expect(cli.joined()).toContain('rm --force bare-proxy');
     expect(cli.joined().some((c) => c === 'rm --force gateway-spike')).toBe(false);
+  });
+
+  it('filters container state itself so Podman-compatible runtimes can list residue', async () => {
+    // Podman's docker shim rejects `--filter status=dead`, which failed the
+    // whole listing; running containers must still be left alone.
+    cli.responses = [
+      {
+        match: /^ps -a/,
+        output: 'ncl-spike-s2-aux|s2|mcp|stopped\nncl-spike-s3|s3|agent|running\nold|||configured\n',
+      },
+    ];
+
+    await driver().reapResidue('spike');
+
+    expect(cli.joined().some((c) => c.includes('status='))).toBe(false);
+    expect(cli.joined()).toContain('rm --force ncl-spike-s2-aux');
+    expect(cli.joined()).toContain('rm --force old');
+    expect(cli.joined().some((c) => c === 'rm --force ncl-spike-s3')).toBe(false);
   });
 
   it('reaps install-owned networks whose containers are gone', async () => {
